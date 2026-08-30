@@ -1,0 +1,577 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>健身紀錄</title>
+<link rel="manifest" href="./manifest.json">
+<link rel="icon" href="./icon-192.png">
+<meta name="theme-color" content="#1a1a2e">
+<style>
+  :root{
+    --bg:#1a1a2e;
+    --bg2:#16213e;
+    --card:#0f3460;
+    --accent:#e94560;
+    --text:#eaeaea;
+    --muted:#9aa5b1;
+    --border:#26314a;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0;
+    font-family:-apple-system,BlinkMacSystemFont,"PingFang TC","Noto Sans TC",sans-serif;
+    background:var(--bg);
+    color:var(--text);
+    padding-bottom:env(safe-area-inset-bottom);
+  }
+  header{
+    padding:20px 16px 12px;
+    text-align:center;
+  }
+  header h1{
+    margin:0;
+    font-size:20px;
+    letter-spacing:2px;
+  }
+  header p{
+    margin:4px 0 0;
+    color:var(--muted);
+    font-size:12px;
+  }
+  nav{
+    display:flex;
+    gap:8px;
+    padding:0 16px 12px;
+  }
+  nav button{
+    flex:1;
+    padding:10px 0;
+    border-radius:10px;
+    border:1px solid var(--border);
+    background:var(--bg2);
+    color:var(--muted);
+    font-size:14px;
+    -webkit-tap-highlight-color:transparent;
+  }
+  nav button.active{
+    background:var(--accent);
+    color:white;
+    border-color:var(--accent);
+  }
+  main{
+    padding:0 16px 32px;
+    max-width:480px;
+    margin:0 auto;
+  }
+  .view{display:none;}
+  .view.active{display:block;}
+  .card{
+    background:var(--bg2);
+    border:1px solid var(--border);
+    border-radius:14px;
+    padding:16px;
+    margin-bottom:14px;
+  }
+  label{
+    display:block;
+    font-size:12px;
+    color:var(--muted);
+    margin:10px 0 4px;
+  }
+  label:first-child{margin-top:0;}
+  input, select, textarea{
+    width:100%;
+    padding:10px 12px;
+    border-radius:8px;
+    border:1px solid var(--border);
+    background:var(--bg);
+    color:var(--text);
+    font-size:15px;
+  }
+  select{appearance:none;-webkit-appearance:none;}
+  .row2{display:flex;gap:10px;}
+  .row2 > div{flex:1;}
+  .btn{
+    width:100%;
+    padding:12px;
+    margin-top:16px;
+    border:none;
+    border-radius:10px;
+    background:var(--accent);
+    color:white;
+    font-size:15px;
+    font-weight:600;
+  }
+  .btn.secondary{
+    background:transparent;
+    border:1px solid var(--accent);
+    color:var(--accent);
+  }
+  .btn.small{
+    width:auto;
+    padding:8px 14px;
+    margin-top:0;
+    font-size:13px;
+  }
+  .log-item{
+    border-bottom:1px solid var(--border);
+    padding:10px 0;
+    font-size:14px;
+  }
+  .log-item:last-child{border-bottom:none;}
+  .log-top{
+    display:flex;
+    justify-content:space-between;
+    color:var(--muted);
+    font-size:12px;
+  }
+  .log-main{
+    margin-top:4px;
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+  }
+  .log-ex{font-weight:600;}
+  .log-detail{color:var(--muted);font-size:12px;margin-top:2px;}
+  .del{
+    background:none;
+    border:none;
+    color:var(--muted);
+    font-size:18px;
+    padding:4px 8px;
+  }
+  .filter-row{
+    display:flex;
+    gap:8px;
+    margin-bottom:10px;
+  }
+  .filter-row select{flex:1;}
+  canvas{
+    width:100%;
+    height:220px;
+    background:var(--bg);
+    border-radius:10px;
+  }
+  .empty{
+    color:var(--muted);
+    text-align:center;
+    padding:24px 0;
+    font-size:13px;
+  }
+  .manage-item{
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    padding:8px 0;
+    border-bottom:1px solid var(--border);
+    font-size:14px;
+  }
+  .manage-item:last-child{border-bottom:none;}
+  .manage-sub{color:var(--muted);font-size:12px;}
+  h2.section-title{
+    font-size:14px;
+    color:var(--muted);
+    margin:0 0 10px;
+    text-transform:uppercase;
+    letter-spacing:1px;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>健身紀錄</h1>
+  <p>器材型號 · 重量 · 組數次數</p>
+</header>
+
+<nav>
+  <button data-view="log" class="active">紀錄</button>
+  <button data-view="history">歷史</button>
+  <button data-view="trend">趨勢</button>
+  <button data-view="manage">管理</button>
+</nav>
+
+<main>
+
+  <!-- 紀錄 -->
+  <section class="view active" id="view-log">
+    <div class="card">
+      <label>日期</label>
+      <input type="date" id="f-date">
+
+      <label>動作</label>
+      <select id="f-exercise"></select>
+
+      <label>器材（品牌＋型號）</label>
+      <select id="f-equipment"></select>
+
+      <div class="row2">
+        <div>
+          <label>重量 (kg)</label>
+          <input type="number" step="0.5" id="f-weight" placeholder="例如 40">
+        </div>
+        <div>
+          <label>組數</label>
+          <input type="number" id="f-sets" placeholder="例如 4">
+        </div>
+        <div>
+          <label>次數</label>
+          <input type="number" id="f-reps" placeholder="例如 10">
+        </div>
+      </div>
+
+      <label>RPE / 備註</label>
+      <textarea id="f-note" rows="2" placeholder="選填，例如 RPE8、感覺、代償狀況"></textarea>
+
+      <button class="btn" id="btn-save">儲存紀錄</button>
+    </div>
+  </section>
+
+  <!-- 歷史 -->
+  <section class="view" id="view-history">
+    <div class="card">
+      <div class="filter-row">
+        <select id="hist-filter-exercise"><option value="">全部動作</option></select>
+        <select id="hist-filter-equipment"><option value="">全部器材</option></select>
+      </div>
+      <div id="history-list"><div class="empty">尚無紀錄</div></div>
+    </div>
+  </section>
+
+  <!-- 趨勢 -->
+  <section class="view" id="view-trend">
+    <div class="card">
+      <label>選擇動作看重量趨勢</label>
+      <select id="trend-exercise"></select>
+      <canvas id="trend-canvas" width="600" height="440"></canvas>
+      <div class="empty" id="trend-empty" style="display:none;">此動作尚無足夠紀錄</div>
+    </div>
+  </section>
+
+  <!-- 管理 -->
+  <section class="view" id="view-manage">
+    <div class="card">
+      <h2 class="section-title">新增動作</h2>
+      <div class="row2">
+        <div><input type="text" id="new-ex-name" placeholder="例如 臥推、深蹲"></div>
+        <button class="btn small" id="btn-add-ex">新增</button>
+      </div>
+      <div id="ex-list" style="margin-top:12px;"></div>
+    </div>
+
+    <div class="card">
+      <h2 class="section-title">新增器材</h2>
+      <label>品牌</label>
+      <input type="text" id="new-eq-brand" placeholder="例如 Hammer Strength">
+      <label>型號</label>
+      <input type="text" id="new-eq-model" placeholder="例如 臥推機 HS-1234">
+      <label>地點（選填）</label>
+      <input type="text" id="new-eq-location" placeholder="例如 公司旁健身房">
+      <button class="btn" id="btn-add-eq">新增器材</button>
+      <div id="eq-list" style="margin-top:12px;"></div>
+    </div>
+
+    <div class="card">
+      <h2 class="section-title">資料備份</h2>
+      <button class="btn secondary" id="btn-export">匯出 JSON</button>
+      <label style="margin-top:12px;">匯入 JSON</label>
+      <input type="file" id="import-file" accept="application/json">
+    </div>
+  </section>
+
+</main>
+
+<script>
+const DB_KEY = 'fitnessLogDB_v1';
+
+function loadDB(){
+  const raw = localStorage.getItem(DB_KEY);
+  if(raw){ return JSON.parse(raw); }
+  return { exercises: [], equipment: [], logs: [] };
+}
+function saveDB(){
+  localStorage.setItem(DB_KEY, JSON.stringify(db));
+}
+let db = loadDB();
+
+function uid(){ return Date.now().toString(36) + Math.random().toString(36).slice(2,7); }
+
+// ---------- Nav ----------
+document.querySelectorAll('nav button').forEach(btn=>{
+  btn.addEventListener('click', ()=>{
+    document.querySelectorAll('nav button').forEach(b=>b.classList.remove('active'));
+    document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById('view-'+btn.dataset.view).classList.add('active');
+    if(btn.dataset.view==='history') renderHistory();
+    if(btn.dataset.view==='trend') renderTrend();
+    if(btn.dataset.view==='manage') renderManage();
+  });
+});
+
+// ---------- Populate selects ----------
+function refreshExerciseSelects(){
+  const opts = db.exercises.map(e=>`<option value="${e.id}">${escapeHtml(e.name)}</option>`).join('');
+  document.getElementById('f-exercise').innerHTML = opts || '<option value="">請先到「管理」新增動作</option>';
+  document.getElementById('trend-exercise').innerHTML = opts || '<option value="">請先到「管理」新增動作</option>';
+  document.getElementById('hist-filter-exercise').innerHTML = '<option value="">全部動作</option>' + opts;
+}
+function refreshEquipmentSelects(){
+  const opts = db.equipment.map(e=>{
+    const label = [e.brand, e.model].filter(Boolean).join(' ') + (e.location ? ` (${e.location})` : '');
+    return `<option value="${e.id}">${escapeHtml(label)}</option>`;
+  }).join('');
+  document.getElementById('f-equipment').innerHTML = opts || '<option value="">請先到「管理」新增器材</option>';
+  document.getElementById('hist-filter-equipment').innerHTML = '<option value="">全部器材</option>' + opts;
+}
+function escapeHtml(s){
+  return (s||'').replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+// ---------- Save log ----------
+document.getElementById('f-date').valueAsDate = new Date();
+document.getElementById('btn-save').addEventListener('click', ()=>{
+  const exId = document.getElementById('f-exercise').value;
+  const eqId = document.getElementById('f-equipment').value;
+  const weight = document.getElementById('f-weight').value;
+  const sets = document.getElementById('f-sets').value;
+  const reps = document.getElementById('f-reps').value;
+  if(!exId || !document.getElementById('f-date').value){
+    alert('請確認日期與動作已選擇');
+    return;
+  }
+  db.logs.push({
+    id: uid(),
+    date: document.getElementById('f-date').value,
+    exerciseId: exId,
+    equipmentId: eqId || null,
+    weight: weight ? Number(weight) : null,
+    sets: sets ? Number(sets) : null,
+    reps: reps ? Number(reps) : null,
+    note: document.getElementById('f-note').value.trim()
+  });
+  saveDB();
+  document.getElementById('f-weight').value='';
+  document.getElementById('f-sets').value='';
+  document.getElementById('f-reps').value='';
+  document.getElementById('f-note').value='';
+  alert('已儲存');
+});
+
+// ---------- History ----------
+function renderHistory(){
+  const exFilter = document.getElementById('hist-filter-exercise').value;
+  const eqFilter = document.getElementById('hist-filter-equipment').value;
+  let logs = [...db.logs].sort((a,b)=> b.date.localeCompare(a.date));
+  if(exFilter) logs = logs.filter(l=>l.exerciseId===exFilter);
+  if(eqFilter) logs = logs.filter(l=>l.equipmentId===eqFilter);
+
+  const list = document.getElementById('history-list');
+  if(logs.length===0){
+    list.innerHTML = '<div class="empty">尚無符合的紀錄</div>';
+    return;
+  }
+  list.innerHTML = logs.map(l=>{
+    const ex = db.exercises.find(e=>e.id===l.exerciseId);
+    const eq = db.equipment.find(e=>e.id===l.equipmentId);
+    const eqLabel = eq ? [eq.brand, eq.model].filter(Boolean).join(' ') : '';
+    const detail = [
+      l.weight!=null ? `${l.weight}kg` : null,
+      (l.sets!=null && l.reps!=null) ? `${l.sets}組 x ${l.reps}下` : null,
+      eqLabel || null,
+      l.note || null
+    ].filter(Boolean).join(' · ');
+    return `<div class="log-item" data-id="${l.id}">
+      <div class="log-top"><span>${l.date}</span></div>
+      <div class="log-main">
+        <div>
+          <div class="log-ex">${escapeHtml(ex ? ex.name : '未知動作')}</div>
+          <div class="log-detail">${escapeHtml(detail)}</div>
+        </div>
+        <button class="del" data-del="${l.id}">✕</button>
+      </div>
+    </div>`;
+  }).join('');
+
+  list.querySelectorAll('[data-del]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      db.logs = db.logs.filter(l=>l.id!==btn.dataset.del);
+      saveDB();
+      renderHistory();
+    });
+  });
+}
+document.getElementById('hist-filter-exercise').addEventListener('change', renderHistory);
+document.getElementById('hist-filter-equipment').addEventListener('change', renderHistory);
+
+// ---------- Trend ----------
+function renderTrend(){
+  const exId = document.getElementById('trend-exercise').value;
+  const canvas = document.getElementById('trend-canvas');
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+
+  const points = db.logs
+    .filter(l=>l.exerciseId===exId && l.weight!=null)
+    .sort((a,b)=>a.date.localeCompare(b.date));
+
+  document.getElementById('trend-empty').style.display = points.length<2 ? 'block':'none';
+  if(points.length<2) return;
+
+  const pad = 40;
+  const w = canvas.width - pad*2;
+  const h = canvas.height - pad*2;
+  const weights = points.map(p=>p.weight);
+  const minW = Math.min(...weights)*0.9;
+  const maxW = Math.max(...weights)*1.1;
+
+  ctx.strokeStyle = '#26314a';
+  ctx.lineWidth = 1;
+  for(let i=0;i<=4;i++){
+    const y = pad + h - (h*i/4);
+    ctx.beginPath();
+    ctx.moveTo(pad,y);
+    ctx.lineTo(pad+w,y);
+    ctx.stroke();
+    const val = minW + (maxW-minW)*i/4;
+    ctx.fillStyle = '#9aa5b1';
+    ctx.font = '11px sans-serif';
+    ctx.fillText(val.toFixed(1)+'kg', 4, y+4);
+  }
+
+  ctx.strokeStyle = '#e94560';
+  ctx.lineWidth = 2.5;
+  ctx.beginPath();
+  points.forEach((p,i)=>{
+    const x = pad + (w * i/(points.length-1));
+    const y = pad + h - (h * (p.weight-minW)/(maxW-minW));
+    if(i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
+  });
+  ctx.stroke();
+
+  ctx.fillStyle = '#e94560';
+  points.forEach((p,i)=>{
+    const x = pad + (w * i/(points.length-1));
+    const y = pad + h - (h * (p.weight-minW)/(maxW-minW));
+    ctx.beginPath();
+    ctx.arc(x,y,3.5,0,Math.PI*2);
+    ctx.fill();
+  });
+
+  ctx.fillStyle = '#9aa5b1';
+  ctx.font = '10px sans-serif';
+  const step = Math.ceil(points.length/5);
+  points.forEach((p,i)=>{
+    if(i%step===0 || i===points.length-1){
+      const x = pad + (w * i/(points.length-1));
+      ctx.fillText(p.date.slice(5), x-14, canvas.height-8);
+    }
+  });
+}
+document.getElementById('trend-exercise').addEventListener('change', renderTrend);
+
+// ---------- Manage ----------
+document.getElementById('btn-add-ex').addEventListener('click', ()=>{
+  const name = document.getElementById('new-ex-name').value.trim();
+  if(!name) return;
+  db.exercises.push({id: uid(), name});
+  saveDB();
+  document.getElementById('new-ex-name').value='';
+  refreshExerciseSelects();
+  renderManage();
+});
+document.getElementById('btn-add-eq').addEventListener('click', ()=>{
+  const brand = document.getElementById('new-eq-brand').value.trim();
+  const model = document.getElementById('new-eq-model').value.trim();
+  const location = document.getElementById('new-eq-location').value.trim();
+  if(!brand && !model) return;
+  db.equipment.push({id: uid(), brand, model, location});
+  saveDB();
+  document.getElementById('new-eq-brand').value='';
+  document.getElementById('new-eq-model').value='';
+  document.getElementById('new-eq-location').value='';
+  refreshEquipmentSelects();
+  renderManage();
+});
+
+function renderManage(){
+  const exList = document.getElementById('ex-list');
+  exList.innerHTML = db.exercises.length ? db.exercises.map(e=>`
+    <div class="manage-item">
+      <span>${escapeHtml(e.name)}</span>
+      <button class="del" data-del-ex="${e.id}">✕</button>
+    </div>`).join('') : '<div class="empty">尚未新增動作</div>';
+
+  const eqList = document.getElementById('eq-list');
+  eqList.innerHTML = db.equipment.length ? db.equipment.map(e=>`
+    <div class="manage-item">
+      <div>
+        <div>${escapeHtml([e.brand,e.model].filter(Boolean).join(' '))}</div>
+        ${e.location ? `<div class="manage-sub">${escapeHtml(e.location)}</div>` : ''}
+      </div>
+      <button class="del" data-del-eq="${e.id}">✕</button>
+    </div>`).join('') : '<div class="empty">尚未新增器材</div>';
+
+  exList.querySelectorAll('[data-del-ex]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      db.exercises = db.exercises.filter(e=>e.id!==btn.dataset.delEx);
+      saveDB(); refreshExerciseSelects(); renderManage();
+    });
+  });
+  eqList.querySelectorAll('[data-del-eq]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      db.equipment = db.equipment.filter(e=>e.id!==btn.dataset.delEq);
+      saveDB(); refreshEquipmentSelects(); renderManage();
+    });
+  });
+}
+
+// ---------- Export / Import ----------
+document.getElementById('btn-export').addEventListener('click', ()=>{
+  const blob = new Blob([JSON.stringify(db, null, 2)], {type:'application/json'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `fitness-log-${new Date().toISOString().slice(0,10)}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+});
+document.getElementById('import-file').addEventListener('change', (e)=>{
+  const file = e.target.files[0];
+  if(!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    try{
+      const imported = JSON.parse(reader.result);
+      if(imported.exercises && imported.equipment && imported.logs){
+        db = imported;
+        saveDB();
+        refreshExerciseSelects();
+        refreshEquipmentSelects();
+        renderManage();
+        renderHistory();
+        alert('匯入成功');
+      } else {
+        alert('檔案格式不正確');
+      }
+    }catch(err){
+      alert('匯入失敗：'+err.message);
+    }
+  };
+  reader.readAsText(file);
+});
+
+// ---------- Init ----------
+refreshExerciseSelects();
+refreshEquipmentSelects();
+
+// ---------- Service worker ----------
+if('serviceWorker' in navigator){
+  window.addEventListener('load', ()=>{
+    navigator.serviceWorker.register('./sw.js').catch(()=>{});
+  });
+}
+</script>
+</body>
+</html>
