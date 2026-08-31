@@ -341,7 +341,7 @@
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js";
 import {
-  getAuth, GoogleAuthProvider, signInWithRedirect, getRedirectResult,
+  getAuth, GoogleAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult,
   onAuthStateChanged, signOut
 } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js";
 import {
@@ -405,7 +405,23 @@ function saveDB(){
 // ---------- Auth ----------
 document.getElementById('btn-signin').addEventListener('click', ()=>{
   const provider = new GoogleAuthProvider();
-  signInWithRedirect(auth, provider);
+  const btn = document.getElementById('btn-signin');
+  btn.disabled = true;
+  btn.textContent = '登入中…';
+  signInWithPopup(auth, provider)
+    .catch((err)=>{
+      // popup blocked / not supported (common inside installed PWA / in-app
+      // browsers) — fall back to full-page redirect
+      if(['auth/popup-blocked','auth/operation-not-supported-in-this-environment'].includes(err.code)){
+        signInWithRedirect(auth, provider);
+        return;
+      }
+      btn.disabled = false;
+      btn.textContent = '使用 Google 帳號登入';
+      if(err.code !== 'auth/popup-closed-by-user' && err.code !== 'auth/cancelled-popup-request'){
+        alert('登入失敗：' + err.message);
+      }
+    });
 });
 document.getElementById('btn-signout').addEventListener('click', ()=>{
   if(unsubscribeSnapshot) unsubscribeSnapshot();
