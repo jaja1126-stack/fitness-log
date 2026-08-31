@@ -169,6 +169,28 @@
   }
   .manage-item:last-child{border-bottom:none;}
   .manage-sub{color:var(--muted);font-size:12px;}
+  .eq-thumb{
+    width:44px;height:44px;
+    border-radius:8px;
+    object-fit:cover;
+    margin-right:10px;
+    flex-shrink:0;
+    background:var(--bg);
+  }
+  .manage-item-left{display:flex;align-items:center;flex:1;min-width:0;}
+  .manage-item-text{min-width:0;}
+  .photo-preview{
+    width:80px;height:80px;
+    border-radius:10px;
+    object-fit:cover;
+    margin-top:8px;
+    display:none;
+    background:var(--bg);
+  }
+  .log-item.editing{background:var(--bg);border-radius:10px;padding:12px;margin:6px 0;}
+  .edit-actions{display:flex;gap:8px;margin-top:10px;}
+  .edit-actions .btn{margin-top:0;}
+  .log-main{cursor:pointer;}
   h2.section-title{
     font-size:14px;
     color:var(--muted);
@@ -317,6 +339,9 @@
       <input type="text" id="new-eq-model" placeholder="例如 臥推機 HS-1234">
       <label>地點（選填）</label>
       <input type="text" id="new-eq-location" placeholder="例如 公司旁健身房">
+      <label>照片（選填）</label>
+      <input type="file" id="new-eq-photo" accept="image/*" capture="environment">
+      <img id="new-eq-photo-preview" class="photo-preview">
       <button class="btn" id="btn-add-eq">新增器材</button>
       <div id="eq-list" style="margin-top:12px;"></div>
     </div>
@@ -324,6 +349,7 @@
     <div class="card">
       <h2 class="section-title">資料備份</h2>
       <button class="btn secondary" id="btn-export">匯出 JSON</button>
+      <button class="btn secondary" id="btn-export-xlsx" style="margin-top:8px;">匯出 Excel</button>
       <label style="margin-top:12px;">匯入 JSON</label>
       <input type="file" id="import-file" accept="application/json">
     </div>
@@ -338,6 +364,7 @@
 </main>
 </div><!-- /app-root -->
 
+<script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js";
 import {
@@ -507,6 +534,38 @@ function escapeHtml(s){
   return (s||'').replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
 
+// ---------- Photo compression (keep Firestore doc size sane) ----------
+function compressImage(file, maxDim=400, quality=0.6){
+  return new Promise((resolve, reject)=>{
+    const reader = new FileReader();
+    reader.onload = () => {
+      const img = new Image();
+      img.onload = () => {
+        let w = img.width, h = img.height;
+        if(w > h && w > maxDim){ h = Math.round(h * maxDim/w); w = maxDim; }
+        else if(h > maxDim){ w = Math.round(w * maxDim/h); h = maxDim; }
+        const canvas = document.createElement('canvas');
+        canvas.width = w; canvas.height = h;
+        canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+        resolve(canvas.toDataURL('image/jpeg', quality));
+      };
+      img.onerror = reject;
+      img.src = reader.result;
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+let pendingNewEqPhoto = null;
+document.getElementById('new-eq-photo').addEventListener('change', async (e)=>{
+  const file = e.target.files[0];
+  if(!file) return;
+  pendingNewEqPhoto = await compressImage(file);
+  const preview = document.getElementById('new-eq-photo-preview');
+  preview.src = pendingNewEqPhoto;
+  preview.style.display = 'block';
+});
+
 // ---------- Save log ----------
 document.getElementById('f-date').valueAsDate = new Date();
 document.getElementById('btn-save').addEventListener('click', ()=>{
@@ -538,6 +597,8 @@ document.getElementById('btn-save').addEventListener('click', ()=>{
 });
 
 // ---------- History ----------
+let editingLogId = null;
+
 function renderHistory(){
   const exFilter = document.getElementById('hist-filter-exercise').value;
   const eqFilter = document.getElementById('hist-filter-equipment').value;
@@ -550,7 +611,35 @@ function renderHistory(){
     list.innerHTML = '<div class="empty">尚無符合的紀錄</div>';
     return;
   }
+
+  const exOptions = db.exercises.map(e=>`<option value="${e.id}">${escapeHtml(e.name)}</option>`).join('');
+  const eqOptions = db.equipment.map(e=>{
+    const label = [e.brand, e.model].filter(Boolean).join(' ') + (e.location ? ` (${e.location})` : '');
+    return `<option value="${e.id}">${escapeHtml(label)}</option>`;
+  }).join('');
+
   list.innerHTML = logs.map(l=>{
+    if(l.id === editingLogId){
+      return `<div class="log-item editing" data-id="${l.id}">
+        <label>日期</label>
+        <input type="date" class="edit-date" value="${l.date}">
+        <label>動作</label>
+        <select class="edit-exercise">${exOptions}</select>
+        <label>器材</label>
+        <select class="edit-equipment"><option value="">（無）</option>${eqOptions}</select>
+        <div class="row2">
+          <div><label>重量 (kg)</label><input type="number" step="0.5" class="edit-weight" value="${l.weight ?? ''}"></div>
+          <div><label>組數</label><input type="number" class="edit-sets" value="${l.sets ?? ''}"></div>
+          <div><label>次數</label><input type="number" class="edit-reps" value="${l.reps ?? ''}"></div>
+        </div>
+        <label>RPE / 備註</label>
+        <textarea rows="2" class="edit-note">${escapeHtml(l.note || '')}</textarea>
+        <div class="edit-actions">
+          <button class="btn small" data-save="${l.id}" style="flex:1;">儲存</button>
+          <button class="btn small secondary" data-cancel style="flex:1;">取消</button>
+        </div>
+      </div>`;
+    }
     const ex = db.exercises.find(e=>e.id===l.exerciseId);
     const eq = db.equipment.find(e=>e.id===l.equipmentId);
     const eqLabel = eq ? [eq.brand, eq.model].filter(Boolean).join(' ') : '';
@@ -562,7 +651,7 @@ function renderHistory(){
     ].filter(Boolean).join(' · ');
     return `<div class="log-item" data-id="${l.id}">
       <div class="log-top"><span>${l.date}</span></div>
-      <div class="log-main">
+      <div class="log-main" data-edit="${l.id}">
         <div>
           <div class="log-ex">${escapeHtml(ex ? ex.name : '未知動作')}</div>
           <div class="log-detail">${escapeHtml(detail)}</div>
@@ -573,12 +662,56 @@ function renderHistory(){
   }).join('');
 
   list.querySelectorAll('[data-del]').forEach(btn=>{
-    btn.addEventListener('click', ()=>{
+    btn.addEventListener('click', (ev)=>{
+      ev.stopPropagation();
+      if(!confirm('確定刪除這筆紀錄？')) return;
       db.logs = db.logs.filter(l=>l.id!==btn.dataset.del);
       saveDB();
       renderHistory();
     });
   });
+  list.querySelectorAll('[data-edit]').forEach(row=>{
+    row.addEventListener('click', ()=>{
+      editingLogId = row.dataset.edit;
+      renderHistory();
+    });
+  });
+  list.querySelectorAll('[data-cancel]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      editingLogId = null;
+      renderHistory();
+    });
+  });
+  list.querySelectorAll('[data-save]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const item = btn.closest('.log-item');
+      const l = db.logs.find(x=>x.id===btn.dataset.save);
+      if(!l) return;
+      l.date = item.querySelector('.edit-date').value || l.date;
+      l.exerciseId = item.querySelector('.edit-exercise').value || l.exerciseId;
+      l.equipmentId = item.querySelector('.edit-equipment').value || null;
+      const w = item.querySelector('.edit-weight').value;
+      const s = item.querySelector('.edit-sets').value;
+      const r = item.querySelector('.edit-reps').value;
+      l.weight = w ? Number(w) : null;
+      l.sets = s ? Number(s) : null;
+      l.reps = r ? Number(r) : null;
+      l.note = item.querySelector('.edit-note').value.trim();
+      editingLogId = null;
+      saveDB();
+      renderHistory();
+    });
+  });
+
+  // pre-select current values in the edit form (after options are in the DOM)
+  if(editingLogId){
+    const l = db.logs.find(x=>x.id===editingLogId);
+    const item = list.querySelector(`.log-item.editing[data-id="${editingLogId}"]`);
+    if(l && item){
+      item.querySelector('.edit-exercise').value = l.exerciseId || '';
+      item.querySelector('.edit-equipment').value = l.equipmentId || '';
+    }
+  }
 }
 document.getElementById('hist-filter-exercise').addEventListener('change', renderHistory);
 document.getElementById('hist-filter-equipment').addEventListener('change', renderHistory);
@@ -664,11 +797,14 @@ document.getElementById('btn-add-eq').addEventListener('click', ()=>{
   const model = document.getElementById('new-eq-model').value.trim();
   const location = document.getElementById('new-eq-location').value.trim();
   if(!brand && !model) return;
-  db.equipment.push({id: uid(), brand, model, location});
+  db.equipment.push({id: uid(), brand, model, location, photo: pendingNewEqPhoto || null});
   saveDB();
   document.getElementById('new-eq-brand').value='';
   document.getElementById('new-eq-model').value='';
   document.getElementById('new-eq-location').value='';
+  document.getElementById('new-eq-photo').value='';
+  document.getElementById('new-eq-photo-preview').style.display='none';
+  pendingNewEqPhoto = null;
   refreshEquipmentSelects();
   renderManage();
 });
@@ -684,11 +820,19 @@ function renderManage(){
   const eqList = document.getElementById('eq-list');
   eqList.innerHTML = db.equipment.length ? db.equipment.map(e=>`
     <div class="manage-item">
-      <div>
-        <div>${escapeHtml([e.brand,e.model].filter(Boolean).join(' '))}</div>
-        ${e.location ? `<div class="manage-sub">${escapeHtml(e.location)}</div>` : ''}
+      <div class="manage-item-left">
+        <img class="eq-thumb" src="${e.photo || './icon-192.png'}" alt="">
+        <div class="manage-item-text">
+          <div>${escapeHtml([e.brand,e.model].filter(Boolean).join(' '))}</div>
+          ${e.location ? `<div class="manage-sub">${escapeHtml(e.location)}</div>` : ''}
+        </div>
       </div>
-      <button class="del" data-del-eq="${e.id}">✕</button>
+      <div style="display:flex;align-items:center;gap:4px;">
+        <label class="btn small secondary" style="margin:0;">
+          換照片<input type="file" accept="image/*" capture="environment" style="display:none;" data-photo-for="${e.id}">
+        </label>
+        <button class="del" data-del-eq="${e.id}">✕</button>
+      </div>
     </div>`).join('') : '<div class="empty">尚未新增器材</div>';
 
   exList.querySelectorAll('[data-del-ex]').forEach(btn=>{
@@ -703,6 +847,15 @@ function renderManage(){
       saveDB(); refreshEquipmentSelects(); renderManage();
     });
   });
+  eqList.querySelectorAll('[data-photo-for]').forEach(input=>{
+    input.addEventListener('change', async (e)=>{
+      const file = e.target.files[0];
+      if(!file) return;
+      const photo = await compressImage(file);
+      const eq = db.equipment.find(x=>x.id===input.dataset.photoFor);
+      if(eq){ eq.photo = photo; saveDB(); renderManage(); }
+    });
+  });
 }
 
 // ---------- Export / Import ----------
@@ -714,6 +867,33 @@ document.getElementById('btn-export').addEventListener('click', ()=>{
   a.download = `fitness-log-${new Date().toISOString().slice(0,10)}.json`;
   a.click();
   URL.revokeObjectURL(url);
+});
+document.getElementById('btn-export-xlsx').addEventListener('click', ()=>{
+  if(typeof XLSX === 'undefined'){
+    alert('Excel 匯出元件尚未載入，請確認網路連線後再試一次');
+    return;
+  }
+  const rows = [...db.logs]
+    .sort((a,b)=> a.date.localeCompare(b.date))
+    .map(l=>{
+      const ex = db.exercises.find(e=>e.id===l.exerciseId);
+      const eq = db.equipment.find(e=>e.id===l.equipmentId);
+      return {
+        '日期': l.date,
+        '動作': ex ? ex.name : '',
+        '器材': eq ? [eq.brand, eq.model].filter(Boolean).join(' ') : '',
+        '地點': eq ? (eq.location || '') : '',
+        '重量(kg)': l.weight ?? '',
+        '組數': l.sets ?? '',
+        '次數': l.reps ?? '',
+        '備註': l.note || ''
+      };
+    });
+  const ws = XLSX.utils.json_to_sheet(rows);
+  ws['!cols'] = [{wch:11},{wch:14},{wch:20},{wch:14},{wch:9},{wch:6},{wch:6},{wch:24}];
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, '訓練紀錄');
+  XLSX.writeFile(wb, `fitness-log-${new Date().toISOString().slice(0,10)}.xlsx`);
 });
 document.getElementById('import-file').addEventListener('change', (e)=>{
   const file = e.target.files[0];
