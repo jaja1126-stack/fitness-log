@@ -176,14 +176,63 @@
     text-transform:uppercase;
     letter-spacing:1px;
   }
+  #signin-screen{
+    min-height:100vh;
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    justify-content:center;
+    gap:16px;
+    padding:24px;
+    text-align:center;
+  }
+  #signin-screen h1{font-size:20px;margin:0;}
+  #signin-screen p{color:var(--muted);font-size:13px;margin:0;max-width:280px;}
+  #btn-signin{
+    padding:12px 28px;
+    border:none;
+    border-radius:10px;
+    background:var(--accent);
+    color:white;
+    font-size:15px;
+    font-weight:600;
+  }
+  #app-root{display:none;}
+  .sync-bar{
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    gap:6px;
+    font-size:11px;
+    color:var(--muted);
+    padding:2px 0 4px;
+  }
+  .dot{
+    width:7px;height:7px;border-radius:50%;
+    background:#4caf50;
+    flex-shrink:0;
+  }
+  .dot.offline{background:#e9a544;}
+  .dot.error{background:var(--accent);}
 </style>
 </head>
 <body>
 
+<div id="signin-screen">
+  <h1>健身紀錄</h1>
+  <p>登入 Google 帳號後，紀錄會自動同步到你所有裝置，離線時仍可記錄，恢復連線後自動上傳。</p>
+  <button id="btn-signin">使用 Google 帳號登入</button>
+</div>
+
+<div id="app-root">
 <header>
   <h1>健身紀錄</h1>
   <p>器材型號 · 重量 · 組數次數</p>
 </header>
+<div class="sync-bar">
+  <span class="dot" id="sync-dot"></span>
+  <span id="sync-text">同步中…</span>
+</div>
 
 <nav>
   <button data-view="log" class="active">紀錄</button>
@@ -278,24 +327,137 @@
       <label style="margin-top:12px;">匯入 JSON</label>
       <input type="file" id="import-file" accept="application/json">
     </div>
+
+    <div class="card">
+      <h2 class="section-title">帳號</h2>
+      <div id="account-email" class="manage-sub" style="margin-bottom:10px;"></div>
+      <button class="btn secondary" id="btn-signout">登出</button>
+    </div>
   </section>
 
 </main>
+</div><!-- /app-root -->
 
-<script>
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js";
+import {
+  getAuth, GoogleAuthProvider, signInWithRedirect, getRedirectResult,
+  onAuthStateChanged, signOut
+} from "https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js";
+import {
+  getFirestore, doc, setDoc, onSnapshot,
+  enableIndexedDbPersistence
+} from "https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyAABFcrHJkWBEDdRCi1dqHJ9rVYDiPwxGc",
+  authDomain: "fitness-log-a5fcf.firebaseapp.com",
+  projectId: "fitness-log-a5fcf",
+  storageBucket: "fitness-log-a5fcf.firebasestorage.app",
+  messagingSenderId: "620579634494",
+  appId: "1:620579634494:web:9cdcaaf1d9fab4d6f1c06f"
+};
+
+const fbApp = initializeApp(firebaseConfig);
+const auth = getAuth(fbApp);
+const fs = getFirestore(fbApp);
+enableIndexedDbPersistence(fs).catch(()=>{ /* multiple tabs open, ignore */ });
+
 const DB_KEY = 'fitnessLogDB_v1';
+let currentUid = null;
+let unsubscribeSnapshot = null;
+let suppressNextWrite = false; // avoid re-writing right after receiving our own snapshot
 
-function loadDB(){
+function loadLocalCache(){
   const raw = localStorage.getItem(DB_KEY);
   if(raw){ return JSON.parse(raw); }
   return { exercises: [], equipment: [], logs: [] };
 }
-function saveDB(){
+function saveLocalCache(){
   localStorage.setItem(DB_KEY, JSON.stringify(db));
 }
-let db = loadDB();
+let db = loadLocalCache();
 
 function uid(){ return Date.now().toString(36) + Math.random().toString(36).slice(2,7); }
+
+function setSyncStatus(state, text){
+  const dot = document.getElementById('sync-dot');
+  const label = document.getElementById('sync-text');
+  dot.className = 'dot' + (state === 'offline' ? ' offline' : state === 'error' ? ' error' : '');
+  label.textContent = text;
+}
+
+// ---------- Save to Firestore (debounced) whenever local db changes ----------
+let saveTimer = null;
+function saveDB(){
+  saveLocalCache();
+  if(!currentUid) return;
+  clearTimeout(saveTimer);
+  setSyncStatus('syncing', navigator.onLine ? '同步中…' : '離線，將於恢復連線後同步');
+  saveTimer = setTimeout(()=>{
+    suppressNextWrite = true;
+    setDoc(doc(fs, 'users', currentUid), db)
+      .then(()=> setSyncStatus('ok', navigator.onLine ? '已同步' : '已排入離線佇列，恢復連線後上傳'))
+      .catch((err)=> setSyncStatus('error', '同步失敗：' + err.message));
+  }, 400);
+}
+
+// ---------- Auth ----------
+document.getElementById('btn-signin').addEventListener('click', ()=>{
+  const provider = new GoogleAuthProvider();
+  signInWithRedirect(auth, provider);
+});
+document.getElementById('btn-signout').addEventListener('click', ()=>{
+  if(unsubscribeSnapshot) unsubscribeSnapshot();
+  signOut(auth);
+});
+
+getRedirectResult(auth).catch((err)=>{
+  console.error('redirect sign-in error', err);
+});
+
+onAuthStateChanged(auth, (user)=>{
+  if(user){
+    currentUid = user.uid;
+    document.getElementById('signin-screen').style.display = 'none';
+    document.getElementById('app-root').style.display = 'block';
+    document.getElementById('account-email').textContent = user.email || user.displayName || '';
+
+    if(unsubscribeSnapshot) unsubscribeSnapshot();
+    unsubscribeSnapshot = onSnapshot(doc(fs, 'users', currentUid), (snap)=>{
+      if(suppressNextWrite){ suppressNextWrite = false; }
+      if(snap.exists()){
+        const data = snap.data();
+        db = {
+          exercises: data.exercises || [],
+          equipment: data.equipment || [],
+          logs: data.logs || []
+        };
+      } else {
+        // first login, no doc yet — push whatever local cache we have (may be empty)
+        setDoc(doc(fs, 'users', currentUid), db).catch(()=>{});
+      }
+      saveLocalCache();
+      refreshExerciseSelects();
+      refreshEquipmentSelects();
+      const activeView = document.querySelector('.view.active').id;
+      if(activeView === 'view-history') renderHistory();
+      if(activeView === 'view-trend') renderTrend();
+      if(activeView === 'view-manage') renderManage();
+      setSyncStatus('ok', navigator.onLine ? '已同步' : '離線（顯示上次同步的資料）');
+    }, (err)=>{
+      setSyncStatus('error', '連線失敗：' + err.message);
+    });
+  } else {
+    currentUid = null;
+    if(unsubscribeSnapshot){ unsubscribeSnapshot(); unsubscribeSnapshot = null; }
+    document.getElementById('signin-screen').style.display = 'flex';
+    document.getElementById('app-root').style.display = 'none';
+  }
+});
+
+window.addEventListener('online', ()=> setSyncStatus('ok', '連線已恢復，同步中…'));
+window.addEventListener('offline', ()=> setSyncStatus('offline', '離線，將於恢復連線後同步'));
 
 // ---------- Nav ----------
 document.querySelectorAll('nav button').forEach(btn=>{
@@ -563,8 +725,8 @@ document.getElementById('import-file').addEventListener('change', (e)=>{
 });
 
 // ---------- Init ----------
-refreshExerciseSelects();
-refreshEquipmentSelects();
+// (exercise/equipment selects are populated once auth state resolves and the
+// Firestore snapshot arrives — see onAuthStateChanged above)
 
 // ---------- Service worker ----------
 if('serviceWorker' in navigator){
