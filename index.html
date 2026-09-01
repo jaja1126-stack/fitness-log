@@ -191,6 +191,51 @@
   .edit-actions{display:flex;gap:8px;margin-top:10px;}
   .edit-actions .btn{margin-top:0;}
   .log-main{cursor:pointer;}
+  .hist-mode-row{display:flex;gap:8px;margin-bottom:10px;}
+  .hist-mode-row .btn{margin-top:0;}
+  .hist-mode-row .btn.active{background:var(--accent);color:white;border-color:var(--accent);}
+  .cal-header{
+    display:flex;align-items:center;justify-content:space-between;
+    margin-bottom:10px;
+  }
+  .cal-header button{
+    background:none;border:1px solid var(--border);color:var(--text);
+    border-radius:8px;width:32px;height:32px;font-size:16px;
+  }
+  .cal-header span{font-size:14px;font-weight:600;}
+  .cal-grid{
+    display:grid;
+    grid-template-columns:repeat(7,1fr);
+    gap:4px;
+    margin-bottom:14px;
+  }
+  .cal-dow{
+    text-align:center;font-size:11px;color:var(--muted);padding-bottom:4px;
+  }
+  .cal-day{
+    aspect-ratio:1;
+    display:flex;flex-direction:column;align-items:center;justify-content:center;
+    border-radius:8px;
+    font-size:12px;
+    background:var(--bg);
+    border:1px solid transparent;
+    position:relative;
+  }
+  .cal-day.empty{background:transparent;}
+  .cal-day.has-log{border-color:var(--accent);}
+  .cal-day.selected{background:var(--accent);color:white;}
+  .cal-day .cal-dot{
+    width:4px;height:4px;border-radius:50%;background:var(--accent);
+    margin-top:2px;
+  }
+  .cal-day.selected .cal-dot{background:white;}
+  .cal-clear{
+    display:block;
+    text-align:center;
+    color:var(--muted);
+    font-size:12px;
+    margin:-4px 0 10px;
+  }
   h2.section-title{
     font-size:14px;
     color:var(--muted);
@@ -306,6 +351,11 @@
         <select id="hist-filter-exercise"><option value="">全部動作</option></select>
         <select id="hist-filter-equipment"><option value="">全部器材</option></select>
       </div>
+      <div class="hist-mode-row">
+        <button class="btn small secondary" id="btn-mode-list">列表</button>
+        <button class="btn small secondary" id="btn-mode-calendar">月曆</button>
+      </div>
+      <div id="calendar-wrap" style="display:none;"></div>
       <div id="history-list"><div class="empty">尚無紀錄</div></div>
     </div>
   </section>
@@ -598,19 +648,27 @@ document.getElementById('btn-save').addEventListener('click', ()=>{
 
 // ---------- History ----------
 let editingLogId = null;
+let histViewMode = 'list'; // 'list' | 'calendar'
+let selectedDate = null; // 'YYYY-MM-DD', only used in calendar mode
+let calYear, calMonth; // calMonth is 0-based
 
-function renderHistory(){
+(function initCalDefaults(){
+  const now = new Date();
+  calYear = now.getFullYear();
+  calMonth = now.getMonth();
+})();
+
+function getFilteredLogs(){
   const exFilter = document.getElementById('hist-filter-exercise').value;
   const eqFilter = document.getElementById('hist-filter-equipment').value;
   let logs = [...db.logs].sort((a,b)=> b.date.localeCompare(a.date));
   if(exFilter) logs = logs.filter(l=>l.exerciseId===exFilter);
   if(eqFilter) logs = logs.filter(l=>l.equipmentId===eqFilter);
+  return logs;
+}
 
-  const list = document.getElementById('history-list');
-  if(logs.length===0){
-    list.innerHTML = '<div class="empty">尚無符合的紀錄</div>';
-    return;
-  }
+function renderLogListHtml(logs){
+  if(logs.length===0) return '<div class="empty">尚無符合的紀錄</div>';
 
   const exOptions = db.exercises.map(e=>`<option value="${e.id}">${escapeHtml(e.name)}</option>`).join('');
   const eqOptions = db.equipment.map(e=>{
@@ -618,7 +676,7 @@ function renderHistory(){
     return `<option value="${e.id}">${escapeHtml(label)}</option>`;
   }).join('');
 
-  list.innerHTML = logs.map(l=>{
+  return logs.map(l=>{
     if(l.id === editingLogId){
       return `<div class="log-item editing" data-id="${l.id}">
         <label>日期</label>
@@ -660,8 +718,10 @@ function renderHistory(){
       </div>
     </div>`;
   }).join('');
+}
 
-  list.querySelectorAll('[data-del]').forEach(btn=>{
+function attachLogListEvents(container){
+  container.querySelectorAll('[data-del]').forEach(btn=>{
     btn.addEventListener('click', (ev)=>{
       ev.stopPropagation();
       if(!confirm('確定刪除這筆紀錄？')) return;
@@ -670,19 +730,19 @@ function renderHistory(){
       renderHistory();
     });
   });
-  list.querySelectorAll('[data-edit]').forEach(row=>{
+  container.querySelectorAll('[data-edit]').forEach(row=>{
     row.addEventListener('click', ()=>{
       editingLogId = row.dataset.edit;
       renderHistory();
     });
   });
-  list.querySelectorAll('[data-cancel]').forEach(btn=>{
+  container.querySelectorAll('[data-cancel]').forEach(btn=>{
     btn.addEventListener('click', ()=>{
       editingLogId = null;
       renderHistory();
     });
   });
-  list.querySelectorAll('[data-save]').forEach(btn=>{
+  container.querySelectorAll('[data-save]').forEach(btn=>{
     btn.addEventListener('click', ()=>{
       const item = btn.closest('.log-item');
       const l = db.logs.find(x=>x.id===btn.dataset.save);
@@ -702,19 +762,102 @@ function renderHistory(){
       renderHistory();
     });
   });
-
-  // pre-select current values in the edit form (after options are in the DOM)
   if(editingLogId){
     const l = db.logs.find(x=>x.id===editingLogId);
-    const item = list.querySelector(`.log-item.editing[data-id="${editingLogId}"]`);
+    const item = container.querySelector(`.log-item.editing[data-id="${editingLogId}"]`);
     if(l && item){
       item.querySelector('.edit-exercise').value = l.exerciseId || '';
       item.querySelector('.edit-equipment').value = l.equipmentId || '';
     }
   }
 }
+
+const CAL_DOW = ['日','一','二','三','四','五','六'];
+
+function renderCalendarHtml(logs){
+  const firstOfMonth = new Date(calYear, calMonth, 1);
+  const startDow = firstOfMonth.getDay();
+  const daysInMonth = new Date(calYear, calMonth+1, 0).getDate();
+  const datesWithLog = new Set(logs.map(l=>l.date));
+
+  let cells = '';
+  for(let i=0;i<startDow;i++) cells += '<div class="cal-day empty"></div>';
+  for(let d=1; d<=daysInMonth; d++){
+    const dateStr = `${calYear}-${String(calMonth+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+    const hasLog = datesWithLog.has(dateStr);
+    const isSelected = dateStr === selectedDate;
+    cells += `<div class="cal-day${hasLog?' has-log':''}${isSelected?' selected':''}" data-date="${dateStr}">
+      <span>${d}</span>${hasLog?'<span class="cal-dot"></span>':''}
+    </div>`;
+  }
+
+  const dowRow = CAL_DOW.map(d=>`<div class="cal-dow">${d}</div>`).join('');
+
+  return `
+    <div class="cal-header">
+      <button id="cal-prev">‹</button>
+      <span>${calYear} / ${String(calMonth+1).padStart(2,'0')}</span>
+      <button id="cal-next">›</button>
+    </div>
+    <div class="cal-grid">${dowRow}${cells}</div>
+    ${selectedDate ? `<span class="cal-clear" id="cal-clear">清除日期篩選（目前：${selectedDate}）</span>` : ''}
+  `;
+}
+
+function renderHistory(){
+  const logs = getFilteredLogs();
+
+  document.getElementById('btn-mode-list').classList.toggle('active', histViewMode==='list');
+  document.getElementById('btn-mode-calendar').classList.toggle('active', histViewMode==='calendar');
+
+  const calWrap = document.getElementById('calendar-wrap');
+  const list = document.getElementById('history-list');
+
+  if(histViewMode === 'calendar'){
+    calWrap.style.display = 'block';
+    calWrap.innerHTML = renderCalendarHtml(logs);
+
+    calWrap.querySelectorAll('.cal-day[data-date]').forEach(cell=>{
+      cell.addEventListener('click', ()=>{
+        const d = cell.dataset.date;
+        selectedDate = (selectedDate === d) ? null : d;
+        renderHistory();
+      });
+    });
+    const prevBtn = document.getElementById('cal-prev');
+    const nextBtn = document.getElementById('cal-next');
+    if(prevBtn) prevBtn.addEventListener('click', ()=>{
+      calMonth--; if(calMonth<0){calMonth=11;calYear--;}
+      renderHistory();
+    });
+    if(nextBtn) nextBtn.addEventListener('click', ()=>{
+      calMonth++; if(calMonth>11){calMonth=0;calYear++;}
+      renderHistory();
+    });
+    const clearBtn = document.getElementById('cal-clear');
+    if(clearBtn) clearBtn.addEventListener('click', ()=>{ selectedDate = null; renderHistory(); });
+
+    const dayLogs = selectedDate ? logs.filter(l=>l.date===selectedDate) : [];
+    list.innerHTML = selectedDate
+      ? renderLogListHtml(dayLogs)
+      : '<div class="empty">點選月曆上有標記的日期查看當天紀錄</div>';
+    attachLogListEvents(list);
+  } else {
+    calWrap.style.display = 'none';
+    list.innerHTML = renderLogListHtml(logs);
+    attachLogListEvents(list);
+  }
+}
 document.getElementById('hist-filter-exercise').addEventListener('change', renderHistory);
 document.getElementById('hist-filter-equipment').addEventListener('change', renderHistory);
+document.getElementById('btn-mode-list').addEventListener('click', ()=>{
+  histViewMode = 'list';
+  renderHistory();
+});
+document.getElementById('btn-mode-calendar').addEventListener('click', ()=>{
+  histViewMode = 'calendar';
+  renderHistory();
+});
 
 // ---------- Trend ----------
 function renderTrend(){
@@ -809,6 +952,8 @@ document.getElementById('btn-add-eq').addEventListener('click', ()=>{
   renderManage();
 });
 
+let editingEqId = null;
+
 function renderManage(){
   const exList = document.getElementById('ex-list');
   exList.innerHTML = db.exercises.length ? db.exercises.map(e=>`
@@ -818,8 +963,22 @@ function renderManage(){
     </div>`).join('') : '<div class="empty">尚未新增動作</div>';
 
   const eqList = document.getElementById('eq-list');
-  eqList.innerHTML = db.equipment.length ? db.equipment.map(e=>`
-    <div class="manage-item">
+  eqList.innerHTML = db.equipment.length ? db.equipment.map(e=>{
+    if(e.id === editingEqId){
+      return `<div class="manage-item" style="display:block;padding:10px 0;" data-id="${e.id}">
+        <label>品牌</label>
+        <input type="text" class="edit-eq-brand" value="${escapeHtml(e.brand||'')}">
+        <label>型號</label>
+        <input type="text" class="edit-eq-model" value="${escapeHtml(e.model||'')}">
+        <label>地點（選填）</label>
+        <input type="text" class="edit-eq-location" value="${escapeHtml(e.location||'')}">
+        <div class="edit-actions">
+          <button class="btn small" data-save-eq="${e.id}" style="flex:1;">儲存</button>
+          <button class="btn small secondary" data-cancel-eq style="flex:1;">取消</button>
+        </div>
+      </div>`;
+    }
+    return `<div class="manage-item">
       <div class="manage-item-left">
         <img class="eq-thumb" src="${e.photo || './icon-192.png'}" alt="">
         <div class="manage-item-text">
@@ -828,12 +987,14 @@ function renderManage(){
         </div>
       </div>
       <div style="display:flex;align-items:center;gap:4px;">
+        <button class="btn small secondary" data-edit-eq="${e.id}">編輯</button>
         <label class="btn small secondary" style="margin:0;">
           換照片<input type="file" accept="image/*" capture="environment" style="display:none;" data-photo-for="${e.id}">
         </label>
         <button class="del" data-del-eq="${e.id}">✕</button>
       </div>
-    </div>`).join('') : '<div class="empty">尚未新增器材</div>';
+    </div>`;
+  }).join('') : '<div class="empty">尚未新增器材</div>';
 
   exList.querySelectorAll('[data-del-ex]').forEach(btn=>{
     btn.addEventListener('click', ()=>{
@@ -843,6 +1004,7 @@ function renderManage(){
   });
   eqList.querySelectorAll('[data-del-eq]').forEach(btn=>{
     btn.addEventListener('click', ()=>{
+      if(!confirm('確定刪除這個器材？')) return;
       db.equipment = db.equipment.filter(e=>e.id!==btn.dataset.delEq);
       saveDB(); refreshEquipmentSelects(); renderManage();
     });
@@ -854,6 +1016,32 @@ function renderManage(){
       const photo = await compressImage(file);
       const eq = db.equipment.find(x=>x.id===input.dataset.photoFor);
       if(eq){ eq.photo = photo; saveDB(); renderManage(); }
+    });
+  });
+  eqList.querySelectorAll('[data-edit-eq]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      editingEqId = btn.dataset.editEq;
+      renderManage();
+    });
+  });
+  eqList.querySelectorAll('[data-cancel-eq]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      editingEqId = null;
+      renderManage();
+    });
+  });
+  eqList.querySelectorAll('[data-save-eq]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const item = btn.closest('.manage-item');
+      const eq = db.equipment.find(x=>x.id===btn.dataset.saveEq);
+      if(!eq) return;
+      eq.brand = item.querySelector('.edit-eq-brand').value.trim();
+      eq.model = item.querySelector('.edit-eq-model').value.trim();
+      eq.location = item.querySelector('.edit-eq-location').value.trim();
+      editingEqId = null;
+      saveDB();
+      refreshEquipmentSelects();
+      renderManage();
     });
   });
 }
