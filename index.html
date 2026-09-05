@@ -365,6 +365,8 @@
     <div class="card">
       <label>選擇動作看重量趨勢</label>
       <select id="trend-exercise"></select>
+      <label>器材篩選（選填，只看特定機器）</label>
+      <select id="trend-equipment"><option value="">全部器材</option></select>
       <canvas id="trend-canvas" width="600" height="440"></canvas>
       <div class="empty" id="trend-empty" style="display:none;">此動作尚無足夠紀錄</div>
     </div>
@@ -579,6 +581,7 @@ function refreshEquipmentSelects(){
   }).join('');
   document.getElementById('f-equipment').innerHTML = opts || '<option value="">請先到「管理」新增器材</option>';
   document.getElementById('hist-filter-equipment').innerHTML = '<option value="">全部器材</option>' + opts;
+  document.getElementById('trend-equipment').innerHTML = '<option value="">全部器材</option>' + opts;
 }
 function escapeHtml(s){
   return (s||'').replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -862,13 +865,15 @@ document.getElementById('btn-mode-calendar').addEventListener('click', ()=>{
 // ---------- Trend ----------
 function renderTrend(){
   const exId = document.getElementById('trend-exercise').value;
+  const eqId = document.getElementById('trend-equipment').value;
   const canvas = document.getElementById('trend-canvas');
   const ctx = canvas.getContext('2d');
   ctx.clearRect(0,0,canvas.width,canvas.height);
 
-  const points = db.logs
+  let points = db.logs
     .filter(l=>l.exerciseId===exId && l.weight!=null)
     .sort((a,b)=>a.date.localeCompare(b.date));
+  if(eqId) points = points.filter(l=>l.equipmentId===eqId);
 
   document.getElementById('trend-empty').style.display = points.length<2 ? 'block':'none';
   if(points.length<2) return;
@@ -880,7 +885,7 @@ function renderTrend(){
   const minW = Math.min(...weights)*0.9;
   const maxW = Math.max(...weights)*1.1;
 
-  ctx.strokeStyle = '#26314a';
+  ctx.strokeStyle = '#4a3236';
   ctx.lineWidth = 1;
   for(let i=0;i<=4;i++){
     const y = pad + h - (h*i/4);
@@ -889,12 +894,12 @@ function renderTrend(){
     ctx.lineTo(pad+w,y);
     ctx.stroke();
     const val = minW + (maxW-minW)*i/4;
-    ctx.fillStyle = '#9aa5b1';
+    ctx.fillStyle = '#b89a95';
     ctx.font = '11px sans-serif';
     ctx.fillText(val.toFixed(1)+'kg', 4, y+4);
   }
 
-  ctx.strokeStyle = '#e94560';
+  ctx.strokeStyle = '#b76e79';
   ctx.lineWidth = 2.5;
   ctx.beginPath();
   points.forEach((p,i)=>{
@@ -904,7 +909,7 @@ function renderTrend(){
   });
   ctx.stroke();
 
-  ctx.fillStyle = '#e94560';
+  ctx.fillStyle = '#b76e79';
   points.forEach((p,i)=>{
     const x = pad + (w * i/(points.length-1));
     const y = pad + h - (h * (p.weight-minW)/(maxW-minW));
@@ -913,7 +918,7 @@ function renderTrend(){
     ctx.fill();
   });
 
-  ctx.fillStyle = '#9aa5b1';
+  ctx.fillStyle = '#b89a95';
   ctx.font = '10px sans-serif';
   const step = Math.ceil(points.length/5);
   points.forEach((p,i)=>{
@@ -924,6 +929,7 @@ function renderTrend(){
   });
 }
 document.getElementById('trend-exercise').addEventListener('change', renderTrend);
+document.getElementById('trend-equipment').addEventListener('change', renderTrend);
 
 // ---------- Manage ----------
 document.getElementById('btn-add-ex').addEventListener('click', ()=>{
